@@ -1,10 +1,11 @@
-﻿<#	
+<#	
 	.NOTES
 	===========================================================================
-	 Created on:   	15/11/2016 10:04
+	 Created on:   	6/12/2016 10:04
 	 Created by:   	Mathieu Ait Azzouzene
 	 Organization: 	Experteam Corp
 	 Filename:		Update_SILAM.ps1
+	 Version:		1.1
 	===========================================================================
 	.DESCRIPTION
 		This script updates RATP SILAM Workstations running on Windows 7. 
@@ -25,6 +26,7 @@ $DefaultUser = "$env:SystemDrive\Documents and Settings\Default User"
 $UserProfiles = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\'
 $GUIDs = Get-ChildItem -Path $UserProfiles |	Where-Object {$_.PSChildName -like 'S-1-5-21-*'} | Select-Object -expand 'PSChildName'
 $Components = Get-Content "$ScriptPath\componentsWin7.txt"
+$IPSecPolicy = 'ANSALDO Port Filtering Policy'
 
 $ErrorActionPreference = 'Continue'
 
@@ -405,16 +407,30 @@ Catch
 		set-service remoteregistry -startuptype disabled
 	}
 
+Write-Log -Path "$TempPath\$LogFile" "Blocking requested Ports"
+
+Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add policy name=`"$IPSecPolicy`" description=`"Blocks the following ports: TCP $TCPPorts , UDP $UDPPorts`""-Wait -PassThru
+
+Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add filteraction name=`"Blocks Trafic`" action=block`"" -Wait -PassThru
+
 ForEach ($TCPPort in $TCPPorts)
 {
-	Write-Log -Path "$TempPath\$LogFile" "Blocking TCP port $TCPPort"
-	Start-Process -FilePath "$ScriptPath\IPSeccmd.exe" -ArgumentList "-w REG -p `"ANSALDO Port Filtering Policy`" -r `"Block Inbound TCP $TCPPort Rule`" -f *=0:$TCPPort`:TCP -n BLOCK -x" -Wait -PassThru
+	Write-Log -Path "$TempPath\$LogFile" "Blocking TCP port $TCPPort"	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add filter filterlist=`"Block Inbound TCP $TCPPort Filter`" protocol=TCP srcaddr=any srcport=0 dstaddr=me dstport= $TCPPort mirrored=no description=`"Block Inbound TCP $TCPPort Filter`"`"" -Wait -PassThru
+	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add rule name=`"Block $TCPPort`" policy=`"$IPSecPolicy`" filterlist=`"Block Inbound TCP $TCPPort Filter`" filteraction=`"Blocks Trafic`" desc=`"Block Inbound TCP $TCPPort Rule`"`"" -Wait -PassThru
+	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static set policy name=`"$IPSecPolicy`" assign=y`"" -Wait -PassThru
 }
 
 ForEach ($UDPPort in $UDPPorts)
 {
-	Write-Log -Path "$TempPath\$LogFile" "Blocking UDP port $UDPPort"
-	Start-Process -FilePath "$ScriptPath\IPSeccmd.exe" -ArgumentList "-w REG -p `"ANSALDO Port Filtering Policy`" -r `"Block Inbound UDP $UDPPort Rule`" -f *=0:$UDPPort`:UDP -n BLOCK -x" -Wait -PassThru
+	Write-Log -Path "$TempPath\$LogFile" "Blocking UDP port $UDPPort"	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add filter filterlist=`"Block Inbound UDP $UDPPort Filter`" protocol=UDP srcaddr=any srcport=0 dstaddr=me dstport= $UDPPort mirrored=no description=`"Block Inbound UDP $UDPPort Filter`"`"" -Wait -PassThru
+	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static add rule name=`"Block $UDPPort`" policy=`"$IPSecPolicy`" filterlist=`"Block Inbound UDP $UDPPort Filter`" filteraction=`"Blocks Trafic`" desc=`"Block Inbound UDP $UDPPort Rule`"" -Wait -PassThru
+	
+	Start-Process -FilePath "cmd" -ArgumentList "/c `"netsh ipsec static set policy name=`"$IPSecPolicy`" assign=y`"" -Wait -PassThru
 }
 
 	Write-Log -Path "$TempPath\$LogFile" 'Uninstalling Optionnal components.'
